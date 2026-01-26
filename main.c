@@ -5,7 +5,7 @@
   * @brief          : Main program body for Heater Temperature Control (PI)
   ******************************************************************************
   */
-#define TASK 5
+
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
@@ -17,12 +17,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#if TASK == 5
+
 #include <stdio.h>
 #include <stdlib.h>
 #include "bmp2_config.h"
 #include "heater_config.h"
-#endif
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,7 +43,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-#if TASK == 5
 // --- ZMIENNE REGULATORA I PROCESU ---
 float target_temp = 30.0f;     // Temperatura zadana [st. C] - startowa
 float current_temp = 0.0f;     // Aktualna temperatura [st. C]
@@ -60,7 +59,7 @@ float error_integral = 0.0f;   // Suma uchybów (Całka)
 // --- KOMUNIKACJA UART ---
 uint8_t tx_buffer[10];         // Bufor odbiorczy (np. na tekst "45.50")
 const int tx_msg_len = 6;      // Ile znaków czytamy z terminala
-#endif
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -71,7 +70,6 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#if TASK == 5
 
 // Przekierowanie printf na UART3 (dla telemetrii)
 int _write(int file, char *ptr, int len)
@@ -104,7 +102,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   HAL_UART_Receive_IT(&huart3, tx_buffer, tx_msg_len);
  }
 }
-#endif
+
 /* USER CODE END 0 */
 
 /**
@@ -129,7 +127,7 @@ int main(void)
   MX_TIM7_Init();
 
   /* USER CODE BEGIN 2 */
-  #if TASK == 5
+
   // --- INICJALIZACJA SPRZĘTU ---
   printf("System Start...\r\n");
 
@@ -147,14 +145,14 @@ int main(void)
 
   // 4. Start nasłuchu UART (Przerwania)
   HAL_UART_Receive_IT(&huart3, tx_buffer, tx_msg_len);
-  #endif
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    #if TASK == 5
+
     // Pętla sterowania wyzwalana flagą Timera 7
     if(__HAL_TIM_GET_FLAG(&htim7, TIM_FLAG_UPDATE))
     {
@@ -202,7 +200,7 @@ int main(void)
       // Idealny do podglądu w RealTerm lub SerialPlot
       printf("%.2f,%.2f,%.2f\r\n", target_temp, current_temp, pwm_duty);
     }
-    #endif
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
