@@ -2,10 +2,10 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Main program body for Heater Temperature Control (PI)
+  * @brief          : Main program body (AUTO-RESTART UART)
   ******************************************************************************
   */
-
+#define TASK 5
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
@@ -14,95 +14,114 @@
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
+#include "adc.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#if TASK == 5
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include "bmp2_config.h"
 #include "heater_config.h"
-
+#endif
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-// --- ZMIENNE REGULATORA I PROCESU ---
-float target_temp = 30.0f;     // Temperatura zadana [st. C] - startowa
-float current_temp = 0.0f;     // Aktualna temperatura [st. C]
-float pwm_duty = 0.0f;         // Wysterowanie grzałki (0.0 - 100.0 %)
+#if TASK == 5
+extern ADC_HandleTypeDef hadc1;
 
-// --- NASTAWY REGULATORA PI ---
-// UWAGA: Te wartości mogą wymagać dostrojenia do Twojej konkretnej grzałki!
-float Kp = 15.0f;              // Wzmocnienie Proporcjonalne (Reakcja na błąd teraz)
-float Ki = 0.8f;               // Wzmocnienie Całkujące (Kasowanie uchybu ustalonego)
+// --- ZMIENNE PROCESU ---
+float target_temp = 25.0f;
+float current_temp = 0.0f;
+float pwm_duty = 0.0f;
 
-// --- PAMIĘĆ REGULATORA ---
-float error_integral = 0.0f;   // Suma uchybów (Całka)
+// --- PID ---
+float Kp = 9.0f;
+float Ki = 0.7f;
+float error_integral = 0.0f;
 
-// --- KOMUNIKACJA UART ---
-uint8_t tx_buffer[10];         // Bufor odbiorczy (np. na tekst "45.50")
-const int tx_msg_len = 6;      // Ile znaków czytamy z terminala
+// --- POTENCJOMETR ---
+float last_pot_temp = 0.0f;
+const float POT_THRESHOLD = 0.5f;
 
+// --- KOMUNIKACJA ---
+uint8_t rx_byte;
+uint8_t rx_buffer[16];
+int rx_index = 0;
+#endif
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#if TASK == 5
 
-// Przekierowanie printf na UART3 (dla telemetrii)
 int _write(int file, char *ptr, int len)
 {
   return (HAL_UART_Transmit(&huart3, (uint8_t*)ptr, len, HAL_MAX_DELAY) == HAL_OK) ? len : -1;
 }
 
-// Obsługa odbioru danych z UART (Zmiana temperatury zadanej)
+// Obsługa błędów UART (restartuje nasłuch)
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if(huart == &huart3)
+    {
+        // Wyczyszczenie flag błędów (Overrun, Noise, Frame)
+        __HAL_UART_CLEAR_OREFLAG(huart);
+        __HAL_UART_CLEAR_NEFLAG(huart);
+        __HAL_UART_CLEAR_FEFLAG(huart);
+
+        // Restart
+        HAL_UART_Receive_IT(&huart3, &rx_byte, 1);
+    }
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
  if(huart == &huart3)
  {
-  // 1. Konwersja odebranego tekstu na liczbę (float)
-  float new_setpoint = atof((char*)tx_buffer);
+   if (rx_byte == '\n' || rx_byte == '\r')
+   {
+       rx_buffer[rx_index] = 0;
+       if(rx_index > 0)
+       {
+           float val = atof((char*)rx_buffer);
+           if(val < 25.0f) val = 25.0f;
+           if(val > 40.0f) val = 40.0f;
+           target_temp = val;
 
-  // 2. Walidacja danych (Safety First!)
-  // Ograniczamy zakres, żeby nie wpisać przez pomyłkę 1000 stopni lub -200
-  if(new_setpoint >= 20.0f && new_setpoint <= 40.0f)
-  {
-      target_temp = new_setpoint;
-
-      // Opcjonalnie: Zerowanie całki przy dużej zmianie, żeby uniknąć przesterowania
-      // error_integral = 0.0f;
-  }
-
-  // 3. Wyczyszczenie bufora (żeby stare śmieci nie zostały)
-  for(int i=0; i<10; i++) tx_buffer[i] = 0;
-
-  // 4. Ponowne włączenie nasłuchiwania
-  HAL_UART_Receive_IT(&huart3, tx_buffer, tx_msg_len);
+           // DEBUG: Jeśli to zadziała, zobaczysz to w RealTerm
+           printf("[UART OK] Set: %.2f\r\n", target_temp);
+       }
+       rx_index = 0;
+   }
+   else
+   {
+       if(rx_index < 15) rx_buffer[rx_index++] = rx_byte;
+   }
+   HAL_UART_Receive_IT(&huart3, &rx_byte, 1);
  }
 }
-
+#endif
 /* USER CODE END 0 */
 
 /**
@@ -112,95 +131,98 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 int main(void)
 {
   /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* Configure the system clock */
   SystemClock_Config();
 
-  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART3_UART_Init();
   MX_SPI4_Init();
   MX_TIM2_Init();
   MX_TIM7_Init();
+  MX_ADC1_Init();
 
   /* USER CODE BEGIN 2 */
-
-  // --- INICJALIZACJA SPRZĘTU ---
-  printf("System Start...\r\n");
-
-  // 1. Inicjalizacja czujnika BMP280
-  int8_t bmp_status = BMP2_Init(&bmp2dev);
-  if(bmp_status != 0) {
-      printf("BMP280 Init Error: %d\r\n", bmp_status);
-  }
-
-  // 2. Inicjalizacja Grzałki (PWM)
+  #if TASK == 5
+  printf("\r\n=== SYSTEM START ===\r\n");
+  BMP2_Init(&bmp2dev);
   HEATER_PWM_Init(&hheater);
-
-  // 3. Start Timera pętli sterowania (TIM7)
   HAL_TIM_Base_Start(&htim7);
 
-  // 4. Start nasłuchu UART (Przerwania)
-  HAL_UART_Receive_IT(&huart3, tx_buffer, tx_msg_len);
+  // Wymuszenie czystego startu UART (usunięcie śmieci z bufora)
+  __HAL_UART_CLEAR_OREFLAG(&huart3);
+  HAL_UART_Receive_IT(&huart3, &rx_byte, 1);
 
+  // Kalibracja potencjometru
+  HAL_ADC_Start(&hadc1);
+  if(HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) {
+      uint32_t raw = HAL_ADC_GetValue(&hadc1);
+      last_pot_temp = 25.0f + ((float)raw / 4095.0f) * 15.0f;
+  }
+  HAL_ADC_Stop(&hadc1);
+
+  int uart_check_counter = 0;
+  #endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    #if TASK == 5
+    // MECHANIZM SAMONAPRAWY UART (Sprawdzamy co 1000 pętli)
+    uart_check_counter++;
+    if(uart_check_counter > 100000) {
+        // Jeśli UART nie jest w stanie BUSY_RX, to znaczy że przestał słuchać -> Restartujemy go
+        if(HAL_UART_GetState(&huart3) == HAL_UART_STATE_READY) {
+             HAL_UART_Receive_IT(&huart3, &rx_byte, 1);
+        }
+        uart_check_counter = 0;
+    }
 
-    // Pętla sterowania wyzwalana flagą Timera 7
     if(__HAL_TIM_GET_FLAG(&htim7, TIM_FLAG_UPDATE))
     {
       __HAL_TIM_CLEAR_FLAG(&htim7, TIM_FLAG_UPDATE);
 
-      // --- KROK 1: POMIAR (Feedback) ---
+      // --- 1. POTENCJOMETR ---
+      HAL_ADC_Start(&hadc1);
+      if (HAL_ADC_PollForConversion(&hadc1, 2) == HAL_OK)
+      {
+          uint32_t adc_val = HAL_ADC_GetValue(&hadc1);
+          float pot_temp = 25.0f + ((float)adc_val / 4095.0f) * 15.0f;
+
+          if (fabs(pot_temp - last_pot_temp) > POT_THRESHOLD)
+          {
+              target_temp = pot_temp;
+              last_pot_temp = pot_temp;
+              printf("[POT] Change: %.2f\r\n", target_temp);
+          }
+      }
+      HAL_ADC_Stop(&hadc1);
+
+      // --- 2. PID ---
       current_temp = BMP2_ReadTemperature_degC(&bmp2dev);
-
-      // Zabezpieczenie awaryjne: jeśli czujnik zwróci błąd/zero absolutne
-      if(current_temp < -40.0f || current_temp > 120.0f) {
-          HEATER_PWM_WriteDuty(&hheater, 0.0f); // Wyłącz grzanie natychmiast
-          printf("ERROR: Sensor Fail! Temp: %.2f\r\n", current_temp);
-          continue; // Pomiń resztę pętli
+      if(current_temp < -40.0f || current_temp > 125.0f) {
+          HEATER_PWM_WriteDuty(&hheater, 0.0f);
+          continue;
       }
 
-      // --- KROK 2: UCHYB (Error) ---
       float error = target_temp - current_temp;
-
-      // --- KROK 3: CAŁKA (Integral) z Anti-Windup ---
-      // Całkujemy tylko, jeśli sterowanie nie jest nasycone (nie jest 0% ani 100%)
-      // To zapobiega "nakręcaniu się" całki, gdy grzałka i tak już grzeje na maksa.
-      if(pwm_duty > 1.0f && pwm_duty < 99.0f) {
-          error_integral += error;
-      }
-
-      // Dodatkowe, twarde ograniczenie całki (clamp)
+      if(pwm_duty > 1.0f && pwm_duty < 99.0f) error_integral += error;
       if(error_integral > 100.0f) error_integral = 100.0f;
       if(error_integral < -100.0f) error_integral = -100.0f;
 
-      // --- KROK 4: WYLICZENIE WYJŚCIA (PI) ---
       float output = (Kp * error) + (Ki * error_integral);
-
-      // --- KROK 5: NASYCENIE (Saturation) ---
-      // PWM musi być w zakresie 0-100%
       if(output > 100.0f) output = 100.0f;
       if(output < 0.0f) output = 0.0f;
-
       pwm_duty = output;
 
-      // --- KROK 6: STEROWANIE (Actuator) ---
       HEATER_PWM_WriteDuty(&hheater, pwm_duty);
 
-      // --- KROK 7: TELEMETRIA (CSV) ---
-      // Format: Target, Current, PWM
-      // Idealny do podglądu w RealTerm lub SerialPlot
+      // --- 3. TELEMETRIA ---
+      // Czyste CSV
       printf("%.2f,%.2f,%.2f\r\n", target_temp, current_temp, pwm_duty);
     }
-
+    #endif
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -265,7 +287,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-// Tutaj ewentualne dodatkowe funkcje
 /* USER CODE END 4 */
 
 /**
