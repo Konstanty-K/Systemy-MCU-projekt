@@ -35,37 +35,17 @@ typedef struct {
 /* Public define -------------------------------------------------------------*/
 
 /* Public macro --------------------------------------------------------------*/
-#ifdef USE_HAL_DRIVER
-
 /**
  * @brief PWM output handle structure initialization with TIM handle
  *        and channel label
  */
+#ifdef USE_HAL_DRIVER
 #define PWM_INIT_HANDLE(TIMER_HANDLE, CHANNEL) \
   {                                            \
     .Timer = TIMER_HANDLE,                     \
     .Channel = CHANNEL,                        \
     .Duty = 0.0f                               \
   }
-
-/**
- * @brief PWM duty cycle (in percent) to CCR register conversion
- * @param[in] htim : TIM handle
- * @param[in] duty : duty cycle (in percent)
- * @retval Capture/Compare register value
- */
-#define __DUTY_TO_COMPARE(htim, duty) \
-  ((duty*(__HAL_TIM_GET_AUTORELOAD((htim))+1))/100)
-
-/**
- * @brief PWM CCR register to duty cycle (in percent) conversion
- * @param[in] htim : TIM handle
- * @param[in] ch   : TIM channel
- * @retval Duty cycle (in percent)
- */
-#define __COMPARE_TO_DUTY(htim, ch) \
-  ((100*__HAL_TIM_GET_COMPARE((htim), (ch)))/(__HAL_TIM_GET_AUTORELOAD((htim))+1))
-
 #endif
 
 /* Public variables ----------------------------------------------------------*/
@@ -73,14 +53,14 @@ typedef struct {
 /* Public function prototypes ------------------------------------------------*/
 /**
   * @brief Initialize PWM output
-  * @param[in/out] hpwm   : PWM output handle
+  * @param[in/out] hpwm   : PWM output handler
   * @retval None
   */
 void PWM_Init(PWM_Handle_TypeDef* hpwm);
 
 /**
   * @brief Write PWM duty cycle
-  * @param[in/out] hpwm   : PWM output handle
+  * @param[in/out] hpwm   : PWM output handler
   * @param[in]     duty   : PWM duty cycle in percents (0. - 100.)
   * @retval None
   */
@@ -88,7 +68,7 @@ void PWM_WriteDuty(PWM_Handle_TypeDef* hpwm, float duty);
 
 /**
   * @brief Set PWM duty cycle
-  * @param[in]     hpwm   : PWM output handle
+  * @param[in]     hpwm   : PWM output handler
   * @retval PWM duty cycle in percents (0. - 100.)
   */
 float PWM_ReadDuty(const PWM_Handle_TypeDef* hpwm);
